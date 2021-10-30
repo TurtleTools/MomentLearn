@@ -8,6 +8,7 @@ import numpy as np
 
 
 def main():
+
     url = "https://raw.githubusercontent.com/TurtleTools/geometricus/master/example_data/MAPK_KLIFS.tsv"
     mapk_df = pnd.read_csv(url, sep="\t")
     mapk_pdb_id_to_class = {}
