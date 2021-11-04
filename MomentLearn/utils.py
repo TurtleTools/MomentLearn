@@ -40,7 +40,6 @@ def get_example_metadata():
 def get_embedding(prot_rep, bins):
     return np.histogram(prot_rep, bins=bins)[0]
 
-
 def plot_umap(protein_moments,
               model,
               protein_labels):

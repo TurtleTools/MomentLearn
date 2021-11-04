@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-from torch import nn
 import random
 import typing as ty
 from MomentLearn.utils import get_score
@@ -80,4 +79,6 @@ def sample_random_moment_with_close_distant(data, jump=1, batch=1000, number_of_
         else:
             x_sim_dist_all[i] = x_dist
     return torch.tensor(x_all), torch.tensor(x_sim_dist_all), torch.tensor(which)
+
+
 
