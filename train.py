@@ -1,7 +1,7 @@
 import pandas as pnd
 from MomentLearn import utils
 from MomentLearn import model as model_utils
-from MomentLearn.model import Net
+from MomentLearn.model import ContrastiveLearn
 from geometricus import MomentType
 import torch
 import numpy as np
@@ -15,7 +15,7 @@ def main():
     data = list(utils.get_all_kmer_moments_for_pdbs(X_names, kmer_size=kmer_size,
                                                     moment_types=moment_types))
     output_dim = 1
-    model = Net(output_dim, len(moment_types))
+    model = ContrastiveLearn(output_dim, len(moment_types))
     optimizer = torch.optim.Adam(model.parameters(), lr=.001)
     epoch = 100_000
 

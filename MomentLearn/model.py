@@ -5,16 +5,54 @@ import typing as ty
 from MomentLearn.utils import get_score
 
 
-class Net(torch.nn.Module):
-    def __init__(self, number_of_bits, number_of_moments):
-        super(Net, self).__init__()
-        self.lin = torch.nn.Linear(number_of_moments, number_of_bits)
+class LinearMoment(torch.nn.Module):
+    def __init__(self, number_of_moments, output_size):
+        super(LinearMoment, self).__init__()
+        self.lin = torch.nn.Linear(number_of_moments, output_size)
+
+    def forward(self, x):
+        return self.lin(x)
+
+
+class ContrastiveLearn(torch.nn.Module):
+    def __init__(self, number_of_moments, output_size):
+        super(ContrastiveLearn, self).__init__()
+        self.linear_moment = LinearMoment(number_of_moments, output_size)
 
     def forward(self, x, y, z):
-        return self.lin(x), self.lin(y), z
+        return self.linear_moment(x), self.linear_moment(y), z
 
     def forward_single(self, x):
-        return self.lin(x)
+        return self.linear_moment(x)
+
+
+
+class RNNMoment(torch.nn.Module):
+    def __init__(self, input_size, number_of_moments, hidden_size, layer, batch_size):
+        super(RNNMoment, self).__init__()
+        self.batch_size = batch_size
+        self.hidden_size = hidden_size
+        self.number_of_moments = number_of_moments
+        self.input_size = input_size
+        self.layer = layer
+        self.linear_moment = LinearMoment(number_of_moments, input_size)
+        self.rnn = torch.nn.RNN(input_size, hidden_size, layer)
+
+    def forward(self, x, y, h_01, h_02, sizesx, sizesy):
+        x, _ = self.forward_single(x, h_01, sizesx)
+        y, _ = self.forward_single(y, h_02, sizesy)
+        return x, y
+
+    def forward_single(self, x, h_0, sizes):
+        x = self.linear_moment(x)
+        x = torch.nn.utils.rnn.pack_sequence(
+            [x[sizes[:i-1].sum(): sizes[:i].sum()] for i in range(1, sizes.shape[0] + 1)]
+        )
+        x, h_n = self.rnn(x, h_0)
+        return x, h_n
+
+    def init_hidden(self):
+        return torch.zeros(self.layer, self.batch_size, self.hidden_size)
 
 
 def draw_random_from_with_coords(data_moments, data_coords):
@@ -25,6 +63,32 @@ def draw_random_from_with_coords(data_moments, data_coords):
 
 def draw_random_from_data(data: ty.List[np.ndarray]):
     return random.choice(data[random.choice(range(len(data)))])
+
+
+def sample_double_proteins_with_sim_dist(data_moment, classes, batch=200):
+    selected_proteins1, sizes1 = [], []
+    selected_proteins2, sizes2 = [], []
+    which = np.array([random.choice([0, 1]) for _ in range(batch)]).astype("float32")
+    for i in range(batch):
+        inter_idx = random.choice(range(len(data_moment)))
+        protein_class = classes[inter_idx]
+        selected_proteins1.append(data_moment[inter_idx])
+        sizes1.append(len(selected_proteins1[-1]))
+        if which[i] == 1:
+            other_idx = random.choice(list(np.where(classes == protein_class)[0]))
+            # other_idx = inter_idx
+        else:
+            other_idx = random.choice(list(np.where(classes != protein_class)[0]))
+        selected_proteins2.append(data_moment[other_idx])
+        sizes2.append(len(selected_proteins2[-1]))
+    sort_idx1 = np.argsort(sizes1)[::-1]
+    sort_idx2 = np.argsort(sizes2)[::-1]
+    selected_proteins1 = torch.tensor(np.concatenate(sorted(selected_proteins1, key=lambda x: len(x), reverse=True)).astype("float32"))
+    selected_proteins2 = torch.tensor(np.concatenate(sorted(selected_proteins2, key=lambda x: len(x), reverse=True)).astype("float32"))
+
+    return ((selected_proteins1, np.array(sizes1)[sort_idx1], sort_idx1),
+            (selected_proteins2, np.array(sizes2)[sort_idx2], sort_idx2),
+            torch.tensor(which))
 
 
 def sample_random_moment_with_close_distant_with_coords(data_moment, data_coords, jump=5, batch=200, number_of_moments=16):
