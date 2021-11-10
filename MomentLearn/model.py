@@ -36,18 +36,18 @@ class RNNMoment(torch.nn.Module):
         self.input_size = input_size
         self.layer = layer
         self.linear_moment = LinearMoment(number_of_moments, input_size)
-        self.rnn = torch.nn.RNN(input_size, hidden_size, layer)
+        self.rnn = torch.nn.RNN(input_size, hidden_size, layer, batch_first=True)
 
     def forward(self, x, y, h_01, h_02, sizesx, sizesy):
-        x, _ = self.forward_single(x, h_01, sizesx)
-        y, _ = self.forward_single(y, h_02, sizesy)
-        return x, y
+        x, hx = self.forward_single(x, h_01, sizesx)
+        y, hy = self.forward_single(y, h_02, sizesy)
+        return (x, hx), (y, hy)
 
     def forward_single(self, x, h_0, sizes):
         x = self.linear_moment(x)
-        x = torch.nn.utils.rnn.pack_sequence(
-            [x[sizes[:i-1].sum(): sizes[:i].sum()] for i in range(1, sizes.shape[0] + 1)]
-        )
+        x = torch.nn.utils.rnn.pad_sequence(
+            [x[sizes[:i-1].sum(): sizes[:i].sum()] for i in range(1, sizes.shape[0] + 1)], batch_first=True)
+        x = torch.nn.utils.rnn.pack_padded_sequence(x, sizes, batch_first=True)
         x, h_n = self.rnn(x, h_0)
         return x, h_n
 
@@ -83,8 +83,8 @@ def sample_double_proteins_with_sim_dist(data_moment, classes, batch=200):
         sizes2.append(len(selected_proteins2[-1]))
     sort_idx1 = np.argsort(sizes1)[::-1]
     sort_idx2 = np.argsort(sizes2)[::-1]
-    selected_proteins1 = torch.tensor(np.concatenate(sorted(selected_proteins1, key=lambda x: len(x), reverse=True)).astype("float32"))
-    selected_proteins2 = torch.tensor(np.concatenate(sorted(selected_proteins2, key=lambda x: len(x), reverse=True)).astype("float32"))
+    selected_proteins1 = torch.tensor(np.concatenate(np.array(selected_proteins1)[sort_idx1]).astype("float32"))
+    selected_proteins2 = torch.tensor(np.concatenate(np.array(selected_proteins2)[sort_idx2]).astype("float32"))
 
     return ((selected_proteins1, np.array(sizes1)[sort_idx1], sort_idx1),
             (selected_proteins2, np.array(sizes2)[sort_idx2], sort_idx2),
