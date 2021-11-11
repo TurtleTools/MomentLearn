@@ -27,16 +27,16 @@ class ContrastiveLearn(torch.nn.Module):
 
 
 
-class RNNMoment(torch.nn.Module):
+class GRUMoment(torch.nn.Module):
     def __init__(self, input_size, number_of_moments, hidden_size, layer, batch_size):
-        super(RNNMoment, self).__init__()
+        super(GRUMoment, self).__init__()
         self.batch_size = batch_size
         self.hidden_size = hidden_size
         self.number_of_moments = number_of_moments
         self.input_size = input_size
         self.layer = layer
         self.linear_moment = LinearMoment(number_of_moments, input_size)
-        self.rnn = torch.nn.RNN(input_size, hidden_size, layer, batch_first=True)
+        self.rnn = torch.nn.GRU(input_size, hidden_size, layer, batch_first=True)
 
     def forward(self, x, y, h_01, h_02, sizesx, sizesy):
         x, hx = self.forward_single(x, h_01, sizesx)
@@ -53,6 +53,35 @@ class RNNMoment(torch.nn.Module):
 
     def init_hidden(self):
         return torch.zeros(self.layer, self.batch_size, self.hidden_size)
+
+
+class LSTMMoment(torch.nn.Module):
+    def __init__(self, input_size, number_of_moments, hidden_size, layer, batch_size):
+        super(LSTMMoment, self).__init__()
+        self.batch_size = batch_size
+        self.hidden_size = hidden_size
+        self.number_of_moments = number_of_moments
+        self.input_size = input_size
+        self.layer = layer
+        self.linear_moment = LinearMoment(number_of_moments, input_size)
+        self.rnn = torch.nn.LSTM(input_size, hidden_size, layer, batch_first=True)
+
+    def forward(self, x, y, h_01, h_02, c_01, c_02, sizesx, sizesy):
+        x, (hx, cx) = self.forward_single(x, h_01, c_01, sizesx)
+        y, (hy, cy) = self.forward_single(y, h_02, c_02, sizesy)
+        return (x, (hx, cx)), (y, (hy, cy))
+
+    def forward_single(self, x, h_0, c_0, sizes):
+        x = self.linear_moment(x)
+        x = torch.nn.utils.rnn.pad_sequence(
+            [x[sizes[:i-1].sum(): sizes[:i].sum()] for i in range(1, sizes.shape[0] + 1)], batch_first=True)
+        x = torch.nn.utils.rnn.pack_padded_sequence(x, sizes, batch_first=True)
+        x, (h_n, c_n) = self.rnn(x, (h_0, c_0))
+        return x, (h_n, c_n)
+
+    def init_hidden(self):
+        return (torch.zeros(self.layer, self.batch_size, self.hidden_size),
+                torch.zeros(self.layer, self.batch_size, self.hidden_size))
 
 
 def draw_random_from_with_coords(data_moments, data_coords):
