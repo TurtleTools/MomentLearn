@@ -1,3 +1,4 @@
+import imp
 import typing as ty
 from geometricus import MomentInvariants, SplitType, MomentType
 import prody as pd
@@ -6,6 +7,8 @@ from caretta import superposition_functions
 from caretta import score_functions
 import umap
 import torch
+from collections import OrderedDict
+from sklearn.metrics import pairwise_distances
 
 
 def get_all_kmer_moments_for_pdbs(pdbs: ty.List[ty.Tuple[str, str]], kmer_size: int=16,
@@ -40,30 +43,74 @@ def get_example_metadata():
 def get_embedding(prot_rep, bins):
     return np.histogram(prot_rep, bins=bins)[0]
 
+
+def moment_tensors_to_bits(list_of_moment_tensors, nbits=16):
+    bits = []
+    for segment in list_of_moment_tensors:
+        x = (segment < 0).astype("uint8")
+        x = np.packbits(x)
+        bits.append(x)
+    return np.array(bits, dtype="uint8").view(f"|S{nbits//8}").flatten()
+
+
+def mol_to_segs(mol, steps=1, k=175):
+    segs = []
+    for i in range(0, len(mol) - k + 1, steps):
+        segs.append(mol[i: i + k])
+    return np.array(segs).astype(np.float32)
+
+
+def moments_to_tensors(segments, model):
+    return model.forward_single_segment(torch.tensor(segments)).cpu().detach().numpy()
+
+
+def moments_to_bit_list(list_of_moments, model, nbits=16):
+    moment_tensors = model.forward_single_segment(torch.tensor(list_of_moments)).cpu().detach().numpy()
+    return list(moment_tensors_to_bits(moment_tensors, nbits=nbits))
+
+
+def get_all_keys(list_of_moment_hashes, model, nbits=16):
+    all_keys = set()
+    for prot in list_of_moment_hashes:
+        all_keys |= set(moments_to_bit_list(prot, model, nbits=nbits))
+    return list(all_keys)
+
+
+def count_with_keys(prot_hashes, keys):
+    d = OrderedDict.fromkeys(keys, 0)
+    for hash in prot_hashes:
+        d[hash] += 1
+    return np.array([d[x] for x in keys])
+
+
+def get_hash_embeddings(protein_moments, model, nbits=16):
+    ind_moments_compressed = [moments_to_bit_list(x, model, nbits=nbits) for x in protein_moments]
+    all_keys = get_all_keys(protein_moments, model, nbits=nbits)
+    print(len(all_keys))
+    protein_embeddings = [count_with_keys(x, all_keys) for x in ind_moments_compressed]
+    return [x/x.sum() for x in protein_embeddings]
+
+
+def get_distmat(protein_moments, model, nbits=16):
+    embeddings = np.array(get_hash_embeddings(protein_moments, model, nbits=nbits))
+    return pairwise_distances(embeddings, metric="l1")
+
+def get_dist_mat_raw(protein_moments, model):
+    return [moments_to_tensors(x, model) for x in protein_moments]
+
 def plot_umap(protein_moments,
               model,
-              protein_labels):
-    all_moments = np.concatenate(protein_moments)
+              protein_labels,
+              nbits=8):
     import matplotlib.pyplot as plt
-    ms = torch.tensor(all_moments.astype("float32"))
-    r, _, _ = model.forward(ms,ms,ms)
-    r = r.cpu().detach().numpy().T.flatten()
-    h = plt.hist(r)
-    start, end = h[1][0] , h[1][-1]
-    split = (h[1][-1] -  h[1][0])/100
 
-    ind_moments_compressed = [model.forward(torch.tensor(x.astype("float32")),
-                                            torch.tensor(x.astype("float32")),
-                                            torch.tensor(x.astype("float32")))[0].cpu().detach().numpy().T.flatten() for x in protein_moments]
-
-    protein_embeddings = [get_embedding(x, bins=np.arange(start, end, split)) for x in ind_moments_compressed]
-    protein_embeddings = [x/x.sum() for x in protein_embeddings]
+    protein_embeddings = get_hash_embeddings(protein_moments, model, nbits=nbits)
 
     reducer = umap.UMAP(metric="euclidean", n_components=2, n_neighbors=20)
     reduced = reducer.fit_transform(protein_embeddings)
 
     plt.figure(figsize=(10,10))
-    for i in range(3):
+    for i in range(len(set(protein_labels))):
         indices = np.where(np.array(protein_labels) == i)[0]
         plt.scatter(reduced[indices, 0],
                     reduced[indices, 1],

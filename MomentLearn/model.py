@@ -26,6 +26,29 @@ class ContrastiveLearn(torch.nn.Module):
         return self.linear_moment(x)
 
 
+class MomentLearn(torch.nn.Module):
+    def __init__(self, number_of_moments, cont_dim):
+        super(MomentLearn, self).__init__()
+        self.linear_segment = torch.nn.Sequential(
+            torch.nn.Linear(number_of_moments, number_of_moments),
+            torch.nn.ReLU(),
+            torch.nn.BatchNorm1d(number_of_moments),
+            torch.nn.Linear(number_of_moments, cont_dim),
+            torch.nn.Tanh(),
+            torch.nn.BatchNorm1d(cont_dim)
+        )
+
+
+    def forward(self, x, y, z):
+        return self.linear_segment(x), self.linear_segment(y), z
+
+    def forward_single_lab(self, x):
+        return self.linear_segment(x)
+
+    def forward_single_segment(self, x):
+        return self.linear_segment(x)
+
+
 
 class GRUMoment(torch.nn.Module):
     def __init__(self, input_size, number_of_moments, hidden_size, layer, batch_size):
@@ -174,4 +197,37 @@ def sample_random_moment_with_close_distant(data, jump=1, batch=1000, number_of_
     return torch.tensor(x_all), torch.tensor(x_sim_dist_all), torch.tensor(which)
 
 
+def sample_random_moment_with_same_distant(data, jump=1, batch=1000, number_of_moments=16):
+    x_all = np.zeros((batch, number_of_moments), dtype="float32")
+    which = np.array([random.choice([0, 1]) for _ in range(batch)]).astype("float32")
+    x_sim_dist_all = np.zeros((batch, number_of_moments), dtype="float32")
+    for i in range(batch):
+        inter_idx = random.choice(range(len(data)))
+        prot_len = len(data[inter_idx])
+        intra_idx = random.choice(range(jump, prot_len-jump))
+        x, x_sim, x_dist = data[inter_idx][intra_idx], data[inter_idx][intra_idx], draw_random_from_data(data)
+        x_all[i] = x
+        if which[i] == 1:
+            x_sim_dist_all[i] = x_sim
+        else:
+            x_sim_dist_all[i] = x_dist
+    return torch.tensor(x_all), torch.tensor(x_sim_dist_all), torch.tensor(which)
 
+
+def sample_random_moment_with_close_further(data, jump=1, batch=1000, number_of_moments=16, further_min=5, further_max=20):
+    x_all = np.zeros((batch, number_of_moments), dtype="float32")
+    which = np.array([random.choice([0, 1]) for _ in range(batch)]).astype("float32")
+    x_sim_dist_all = np.zeros((batch, number_of_moments), dtype="float32")
+    for i in range(batch):
+        inter_idx = random.choice(range(len(data)))
+        prot_len = len(data[inter_idx])
+        intra_idx = random.choice(range(jump, prot_len-jump))
+        jump_idx = random.choice(list(range(-jump, 0, 1)) + list(range(1, jump+1, 1))) + intra_idx
+        jump_idx2 = random.choice(list(range(max(0, jump_idx - further_max), max(0, jump_idx - further_min))) + list(range(min(jump + further_min, prot_len), min(prot_len, jump + further_max))))
+        x, x_sim, x_dist = data[inter_idx][intra_idx], data[inter_idx][jump_idx], data[inter_idx][jump_idx2]
+        x_all[i] = x
+        if which[i] == 1:
+            x_sim_dist_all[i] = x_sim
+        else:
+            x_sim_dist_all[i] = x_dist
+    return torch.tensor(x_all), torch.tensor(x_sim_dist_all), torch.tensor(which)
